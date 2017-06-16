@@ -3,7 +3,7 @@
 ; i.e. #lang typed/racket already defines a module using typed/racket
 ;racket helper functions to load files as binary data
 (module binfile typed/racket
-  (provide binfile->list)
+  (provide binfile->list binfile->vector)
 
   (: binfile->list (-> Path-String (Listof Byte)))
   (define (binfile->list path)
