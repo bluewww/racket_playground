@@ -2,8 +2,8 @@
 (require "binfile.rkt")
 (require "modarith.rkt")
 
-;change scope of constants to not make it bleed into other code
-;sha256 initial hash values
+;;change scope of constants to not make it bleed into other code
+;;sha256 initial hash values
 (define h0 #x6a09e667)
 (define h1 #xbb67ae85)
 (define h2 #x3c6ef372)
@@ -13,7 +13,7 @@
 (define h6 #x1f83d9ab)
 (define h7 #x5be0cd19)
 
-;sha256 round constants
+;;sha256 round constants
 (: k (Vectorof Integer))
 (define k
   (vector
@@ -26,11 +26,13 @@
    #x19a4c116 #x1e376c08 #x2748774c #x34b0bcb5 #x391c0cb3 #x4ed8aa4a #x5b9cca4f #x682e6ff3
    #x748f82ee #x78a5636f #x84c87814 #x8cc70208 #x90befffa #xa4506ceb #xbef9a3f7 #xc67178f2))
 
-;append original message,  one '1' bit, K '0' bits, length of msg encoded as 64 bit
-;big endian int
-;K is chosen such that L + 1 + K + 64 mod 512 = 0, K >= 0, K minimal
-;consider changing to bytestring since we need all that ugly casting to assure that we
-;have bytes
+;;append original message,  one '1' bit, K '0' bits, length of msg encoded as 64 bit
+;;big endian int
+;;K is chosen such that L + 1 + K + 64 mod 512 = 0, K >= 0, K minimal
+;;consider changing to bytestring since we need all that ugly casting to assure that we
+;;have bytes
+;;TODO: use (inst Vector Byte) (compiletime)
+;;instead of run time casting
 (: sha256-padding (-> (Vectorof Byte) (Vectorof Byte)))
 (define (sha256-padding message)
   (let* ([L (* (vector-length message) 8)]
@@ -43,5 +45,18 @@
                     (list->vector (bytes->list (integer->integer-bytes L 8 #f #t)))
                     (Vectorof Byte)))))
 
-;process 512 bit chunk
-;(define (process-chunk c))
+;;process 512 bit chunk
+
+;;(define (sha256-step hash message)
+;;  )
+(: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
+(define (compress k w v)
+  (match v
+    [(vector a b c d e f g h)
+     (define s1 (xor32 (rotr32 e 6) (xor32 (rotr32 e 11) (rotr32 e 25))))
+     (define ch (xor32 (and32 e f) (and32 (not32 e) g)))
+     (define t1 (add32 h (add32 s1 (add32 ch (add32 k w)))))
+     (define s0 (xor32  (rotr32 a 2) (xor32  (rotr32 a 13) (rotr32 a 22))))
+     (define maj (xor32 (and32 a b) (xor32 (and32 a c) (and32 b c))))
+     (define t2 (add32 s0 maj))
+     (vector (add32 t1 t2) a b c (add32 d t1) e f g)]))
