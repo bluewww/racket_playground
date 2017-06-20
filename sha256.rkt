@@ -101,7 +101,6 @@
       ([i       : Nonnegative-Integer (in-range 0 num-chunks)])
     (sha256-step hsh-acc (subbytes padded-message (* i 64) (+ 64 (* i 64))))))
 
-;; TODO: rewrite this in one for/fold. This is too messy
 (: hash8->hex (-> (Vectorof Integer) String))
 (define (hash8->hex hsh)
   (for/fold : String
