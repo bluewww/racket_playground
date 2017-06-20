@@ -3,7 +3,7 @@
 (require "modarith.rkt")
 (require typed/rackunit)
 
-(provide (all-defined-out))
+(provide sha256 hash8->hex)
 ;; change scope of constants to not make it bleed into other code
 ;; sha256 initial hash values
 (: hsh-init (Vectorof Integer))
@@ -29,31 +29,28 @@
 ;; K is chosen such that L + 1 + K + 64 mod 512 = 0, K >= 0, K minimal
 ;; consider changing to bytestring since we need all that ugly casting to assure that we
 ;; have bytes
-;; TODO: use (inst Vector Byte) (compiletime)
+;; use (inst Vector Byte) (compiletime)
 ;; instead of run time casting
-(: sha256-padding (-> (Vectorof Byte) (Vectorof Byte)))
+(: sha256-padding (-> Bytes Bytes))
 (define (sha256-padding message)
-  (let* ([L (* (vector-length message) 8)]
+  (let* ([L (* (bytes-length message) 8)]
          [K (modulo (- (+ L 1 64)) 512)])
-    (vector-append message
-                   (cast (vector 128) (Vectorof Byte)) ;since we add 1 bit anyways we always have to extend to 8 bit
-                   (cast (make-vector (quotient (- K 7) 8) 0) (Vectorof Byte))
+    (bytes-append message
+                   (bytes 128) ;since we add 1 bit anyways we always have to extend to 8 bit
+                   (make-bytes (quotient (- K 7) 8) 0)
                    ;length encoded as 64 bit big endian integer
-                   (cast
-                    (list->vector (bytes->list (integer->integer-bytes L 8 #f #t)))
-                    (Vectorof Byte)))))
+                   (integer->integer-bytes L 8 #f #t))))
 
 ;; process 512 bit chunk message
 ;; message is the new chunk to hash
 ;; hsh is the hash value of the previous chunks
-(: sha256-step (-> (Vectorof Integer) (Vectorof Byte) (Vectorof Integer)))
+(: sha256-step (-> (Vectorof Integer) Bytes (Vectorof Integer)))
 (define (sha256-step hsh message)
   ;; group the vector of bytes message (512 bit in total)
   ;; into 512 bit vector of 32 bit integers
   (define message512
-    (let ([msg-bytes (list->bytes (vector->list message))])
-      (for/vector : (Vectorof Integer) ([i : Nonnegative-Integer (in-range 0 16)])
-        (integer-bytes->integer msg-bytes #f #t (+ 0 (* i 4)) (+ 4 (* i 4))))))
+    (for/vector : (Vectorof Integer) ([i : Nonnegative-Integer (in-range 0 16)])
+      (integer-bytes->integer message #f #t (+ 0 (* i 4)) (+ 4 (* i 4)))))
   ;; extend the message of 16 32bit integers to 64 32bit integers
   (define ws
     (for/fold ([acc : (Vectorof Integer) message512])
@@ -66,8 +63,7 @@
       (define s1 (xor32 (rotr32 w2 17) (xor32 (rotr32 w2 19) (shiftr32 w2 10))))
       (vector-append
        acc
-       (vector (add32 w16 (add32 s0 (add32 w7 s1))))
-       )))
+       (vector (add32 w16 (add32 s0 (add32 w7 s1)))))))
   ;; one round of the sha256 compression step
   (: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
   (define (compress k w v)
@@ -96,14 +92,14 @@
 ;; workaround: force type: (curry (ann + (-> Number Number Number)) 2)
 
 ;; split up message into chunks of 64 bytes/512 bit and process block by block
-(: sha256 (-> (Vectorof Byte) (Vectorof Integer)))
+(: sha256 (-> Bytes (Vectorof Integer)))
 (define (sha256 message)
   (define padded-message (sha256-padding message))
-  (define num-chunks (/ (vector-length padded-message) 64))
+  (define num-chunks (/ (bytes-length padded-message) 64))
   (for/fold : (Vectorof Integer)
       ([hsh-acc : (Vectorof Integer) hsh-init])
       ([i       : Nonnegative-Integer (in-range 0 num-chunks)])
-    (sha256-step hsh-acc (vector-copy padded-message (* i 64) (+ 64 (* i 64))))))
+    (sha256-step hsh-acc (subbytes padded-message (* i 64) (+ 64 (* i 64))))))
 
 ;; TODO: rewrite this in one for/fold. This is too messy
 (: hash8->hex (-> (Vectorof Integer) String))
@@ -116,23 +112,16 @@
                     hsh)])
     (string-append hacc h)))
 
-(: bytes->vector (-> Bytes (Vectorof Byte))) (define (bytes->vector b)
-  (list->vector (bytes->list b)))
-
-(: vector->bytes (-> (Vectorof Byte) Bytes))
-(define (vector->bytes v)
-  (list->bytes (vector->list v)))
 
 (module+ test
   (check-equal?
-   (hash8->hex (sha256 (bytes->vector #"abc")))
+   (hash8->hex (sha256 #"abc"))
    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
   (check-equal?
-   (hash8->hex (sha256 (bytes->vector
-                        #"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+   (hash8->hex (sha256 #"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
    "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
   (check-equal?
-   (hash8->hex (sha256 (bytes->vector (make-bytes 1000000 97))))
+   (hash8->hex (sha256 (make-bytes 1000000 97)))
    "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"))
 
 

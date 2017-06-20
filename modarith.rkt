@@ -35,15 +35,15 @@
 
   (: xor32 (-> Integer Integer Integer))
   (define (xor32 n m)
-    (bitwise-and (bitwise-xor n m) #xffffffff))
+    (mod32 (bitwise-xor n m)))
 
   (: and32 (-> Integer Integer Integer))
   (define (and32 n m)
-    (bitwise-and (bitwise-and n m) #xffffffff))
+    (mod32 (bitwise-and n m)))
 
   (: not32 (-> Integer Integer))
   (define (not32 n)
-    (bitwise-and (bitwise-not n) #xffffffff)))
+    (mod32 (bitwise-not n))))
 
 
 
