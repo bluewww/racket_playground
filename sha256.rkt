@@ -1,21 +1,19 @@
 #lang typed/racket
 (require "binfile.rkt")
 (require "modarith.rkt")
+(require typed/rackunit)
 
-;;change scope of constants to not make it bleed into other code
-;;sha256 initial hash values
-(define h0 #x6a09e667)
-(define h1 #xbb67ae85)
-(define h2 #x3c6ef372)
-(define h3 #xa54ff53a)
-(define h4 #x510e527f)
-(define h5 #x9b05688c)
-(define h6 #x1f83d9ab)
-(define h7 #x5be0cd19)
+(provide (all-defined-out))
+;; change scope of constants to not make it bleed into other code
+;; sha256 initial hash values
+(: hsh-init (Vectorof Integer))
+(define hsh-init
+  (vector
+   #x6a09e667 #xbb67ae85 #x3c6ef372 #xa54ff53a #x510e527f #x9b05688c #x1f83d9ab #x5be0cd19))
 
-;;sha256 round constants
-(: k (Vectorof Integer))
-(define k
+;; sha256 round constants
+(: ks (Vectorof Integer))
+(define ks
   (vector
    #x428a2f98 #x71374491 #xb5c0fbcf #xe9b5dba5 #x3956c25b #x59f111f1 #x923f82a4 #xab1c5ed5
    #xd807aa98 #x12835b01 #x243185be #x550c7dc3 #x72be5d74 #x80deb1fe #x9bdc06a7 #xc19bf174
@@ -26,13 +24,13 @@
    #x19a4c116 #x1e376c08 #x2748774c #x34b0bcb5 #x391c0cb3 #x4ed8aa4a #x5b9cca4f #x682e6ff3
    #x748f82ee #x78a5636f #x84c87814 #x8cc70208 #x90befffa #xa4506ceb #xbef9a3f7 #xc67178f2))
 
-;;append original message,  one '1' bit, K '0' bits, length of msg encoded as 64 bit
-;;big endian int
-;;K is chosen such that L + 1 + K + 64 mod 512 = 0, K >= 0, K minimal
-;;consider changing to bytestring since we need all that ugly casting to assure that we
-;;have bytes
-;;TODO: use (inst Vector Byte) (compiletime)
-;;instead of run time casting
+;; append original message,  one '1' bit, K '0' bits, length of msg encoded as 64 bit
+;; big endian int
+;; K is chosen such that L + 1 + K + 64 mod 512 = 0, K >= 0, K minimal
+;; consider changing to bytestring since we need all that ugly casting to assure that we
+;; have bytes
+;; TODO: use (inst Vector Byte) (compiletime)
+;; instead of run time casting
 (: sha256-padding (-> (Vectorof Byte) (Vectorof Byte)))
 (define (sha256-padding message)
   (let* ([L (* (vector-length message) 8)]
@@ -40,23 +38,110 @@
     (vector-append message
                    (cast (vector 128) (Vectorof Byte)) ;since we add 1 bit anyways we always have to extend to 8 bit
                    (cast (make-vector (quotient (- K 7) 8) 0) (Vectorof Byte))
-                   ;lenght encoded as 64 bit big endian integer
+                   ;length encoded as 64 bit big endian integer
                    (cast
                     (list->vector (bytes->list (integer->integer-bytes L 8 #f #t)))
                     (Vectorof Byte)))))
 
-;;process 512 bit chunk
+;; process 512 bit chunk message
+;; message is the new chunk to hash
+;; hsh is the hash value of the previous chunks
+(: sha256-step (-> (Vectorof Integer) (Vectorof Byte) (Vectorof Integer)))
+(define (sha256-step hsh message)
+  ;; group the vector of bytes message (512 bit in total)
+  ;; into 512 bit vector of 32 bit integers
+  (define message512
+    (let ([msg-bytes (list->bytes (vector->list message))])
+      (for/vector : (Vectorof Integer) ([i : Nonnegative-Integer (in-range 0 16)])
+        (integer-bytes->integer msg-bytes #f #t (+ 0 (* i 4)) (+ 4 (* i 4))))))
+  ;; extend the message of 16 32bit integers to 64 32bit integers
+  (define ws
+    (for/fold ([acc : (Vectorof Integer) message512])
+              ([i : Positive-Index (in-range 16 64)])
+      (define w15 (vector-ref acc (- i 15)))
+      (define w2  (vector-ref acc (- i 2)))
+      (define w16 (vector-ref acc (- i 16)))
+      (define w7  (vector-ref acc (- i 7)))
+      (define s0 (xor32 (rotr32 w15 7) (xor32 (rotr32 w15 18) (shiftr32 w15 3))))
+      (define s1 (xor32 (rotr32 w2 17) (xor32 (rotr32 w2 19) (shiftr32 w2 10))))
+      (vector-append
+       acc
+       (vector (add32 w16 (add32 s0 (add32 w7 s1))))
+       )))
+  ;; one round of the sha256 compression step
+  (: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
+  (define (compress k w v)
+    (match v
+      [(vector a b c d e f g h)
+       (define s1 (xor32 (rotr32 e 6) (xor32 (rotr32 e 11) (rotr32 e 25))))
+       (define ch (xor32 (and32 e f) (and32 (not32 e) g)))
+       (define t1 (add32 h (add32 s1 (add32 ch (add32 k w)))))
+       (define s0 (xor32  (rotr32 a 2) (xor32  (rotr32 a 13) (rotr32 a 22))))
+       (define maj (xor32 (and32 a b) (xor32 (and32 a c) (and32 b c))))
+       (define t2 (add32 s0 maj))
+       (vector (add32 t1 t2) a b c (add32 d t1) e f g)]))
+  ;; compose the list consisting of compress function (for each ks ws there is
+  ;; function, 64 in total)
+  (define dhsh
+    (for/fold ([acc : (Vectorof Integer) hsh])
+              ([f   : (-> (Vectorof Integer) (Vectorof Integer))
+                    (vector-map (λ ([k : Integer] [w : Integer])
+                                  (curry (curry compress k) w)) ks ws)])
+      (f acc)))
+  ;; add the new hash of this block to the previous hash value
+  ;; this is the hash value up to this block
+  (vector-map add32 dhsh hsh))
+;; Note: curry doesnt seem to work with functions that take an arbitrary amount of
+;; parameters, especially if it accepts also only one argument like '+'
+;; workaround: force type: (curry (ann + (-> Number Number Number)) 2)
 
-;;(define (sha256-step hash message)
-;;  )
-(: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
-(define (compress k w v)
-  (match v
-    [(vector a b c d e f g h)
-     (define s1 (xor32 (rotr32 e 6) (xor32 (rotr32 e 11) (rotr32 e 25))))
-     (define ch (xor32 (and32 e f) (and32 (not32 e) g)))
-     (define t1 (add32 h (add32 s1 (add32 ch (add32 k w)))))
-     (define s0 (xor32  (rotr32 a 2) (xor32  (rotr32 a 13) (rotr32 a 22))))
-     (define maj (xor32 (and32 a b) (xor32 (and32 a c) (and32 b c))))
-     (define t2 (add32 s0 maj))
-     (vector (add32 t1 t2) a b c (add32 d t1) e f g)]))
+;(: expand (-> (Vectorof Integer) (Vectorof Integer)))
+;(define (expand message)
+;  (define message512
+;aaaaaaaaa    (let ([msg-bytes : Bytes (list->bytes (vector->list message))])
+;      (for/vector : (Vectorof Integer) ([i : Nonnegative-Integer (in-range 0 16)])
+;        (integer-bytes->integer msg-bytes #f #t (+ 0 (* i 4)) (+ 4 (* i 4))))))
+;  ;; extend the message of 16 32bit integers to 64 32bit integers
+;  (define ws
+;    (for/fold ([acc : (Vectorof Integer) message512])
+;              ([i : Positive-Index (in-range 16 64)])
+;      (define w15 (vector-ref acc (- i 15)))
+;      (define w2  (vector-ref acc (- i 2)))
+;      (define w16 (vector-ref acc (- i 16)))
+;      (define w7  (vector-ref acc (- i 7)))
+;      (define s0 (xor32 (rotr32 w15 7) (xor32 (rotr32 w15 18) (shiftr32 w15 3))))
+;      (define s1 (xor32 (rotr32 w2 17) (xor32 (rotr32 w2 19) (shiftr32 w2 10))))
+;      (vector-append
+;       acc
+;       (vector (add32 w16 (add32 s0 (add32 w7 s1))))
+;       )))
+;  ws)
+
+;;(define tmp2 (make-bytes 64 1))
+;;(expand (cast  (bytes->vector tmp2) (Vectorof Integer)))
+;;(hash8->hex (sha256-step hsh-init (sha256-padding (bytes->vector #"abc"))))
+
+;; TODO: rewrite this in one for/fold. This is too messy
+(: hash8->hex (-> (Vectorof Integer) String))
+(define (hash8->hex hsh)
+  (for/fold : String
+      ([hacc : String ""])
+      ([h : String (vector-map
+                    (λ ([h : Integer])
+                      (~r h #:base 16 #:min-width 8 #:pad-string "0"))
+                    hsh)])
+    (string-append hacc h)))
+
+(: bytes->vector (-> Bytes (Vectorof Byte))) (define (bytes->vector b)
+  (list->vector (bytes->list b)))
+
+(: vector->bytes (-> (Vectorof Byte) Bytes))
+(define (vector->bytes v)
+  (list->bytes (vector->list v)))
+
+(module+ test
+  (check-equal?
+   (hash8->hex (sha256-step hsh-init (sha256-padding (bytes->vector #"abc"))))
+   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))
+
+
