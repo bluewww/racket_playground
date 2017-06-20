@@ -19,6 +19,7 @@
   (: rotr32 (-> Integer Integer Integer))
   (define (rotr32 n m)
     ;; TODO: range check m with types? contracts do this nicer
+    ;; could use union types but unwieldy
     (if (not (and (< 0 m) (< m 32)))
         (error "shift values of of range")
         (bitwise-ior

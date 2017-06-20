@@ -72,6 +72,7 @@
   (: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
   (define (compress k w v)
     (match v
+      [(vector a b c d e f g h)
        (define s1 (xor32 (rotr32 e 6) (xor32 (rotr32 e 11) (rotr32 e 25))))
        (define ch (xor32 (and32 e f) (and32 (not32 e) g)))
        (define t1 (add32 h (add32 s1 (add32 ch (add32 k w)))))
