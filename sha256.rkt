@@ -4,7 +4,7 @@
 (require typed/rackunit)
 
 (provide sha256 hash8->hex)
-;; change scope of constants to not make it bleed into other code
+
 ;; sha256 initial hash values
 (: hsh-init (Vectorof Integer))
 (define hsh-init
@@ -106,11 +106,8 @@
 (define (hash8->hex hsh)
   (for/fold : String
       ([hacc : String ""])
-      ([h : String (vector-map
-                    (λ ([h : Integer])
-                      (~r h #:base 16 #:min-width 8 #:pad-string "0"))
-                    hsh)])
-    (string-append hacc h)))
+      ([h : Integer hsh])
+    (string-append hacc (~r h #:base 16 #:min-width 8 #:pad-string "0"))))
 
 
 (module+ test
