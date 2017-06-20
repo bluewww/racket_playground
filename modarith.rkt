@@ -1,7 +1,7 @@
 
 (module modarith typed/racket
 
-  (provide add32 mul32 rotr32 xor32 and32 not32 shiftr32 testi)
+  (provide add32 mul32 rotr32 xor32 and32 not32 shiftr32)
   ;;consider operator overloading?
 
   (: mod32 (-> Integer Integer))
@@ -42,12 +42,7 @@
 
   (: not32 (-> Integer Integer))
   (define (not32 n)
-    (bitwise-and (bitwise-not n) #xffffffff))
-
-  (: testi (-> Real Real))
-  (define (testi a)
-    (assert a real?)
-    a))
+    (bitwise-and (bitwise-not n) #xffffffff)))
 
 
 

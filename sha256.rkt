@@ -72,7 +72,6 @@
   (: compress (-> Integer Integer (Vectorof Integer) (Vectorof Integer)))
   (define (compress k w v)
     (match v
-      [(vector a b c d e f g h)
        (define s1 (xor32 (rotr32 e 6) (xor32 (rotr32 e 11) (rotr32 e 25))))
        (define ch (xor32 (and32 e f) (and32 (not32 e) g)))
        (define t1 (add32 h (add32 s1 (add32 ch (add32 k w)))))
@@ -95,31 +94,15 @@
 ;; parameters, especially if it accepts also only one argument like '+'
 ;; workaround: force type: (curry (ann + (-> Number Number Number)) 2)
 
-;(: expand (-> (Vectorof Integer) (Vectorof Integer)))
-;(define (expand message)
-;  (define message512
-;aaaaaaaaa    (let ([msg-bytes : Bytes (list->bytes (vector->list message))])
-;      (for/vector : (Vectorof Integer) ([i : Nonnegative-Integer (in-range 0 16)])
-;        (integer-bytes->integer msg-bytes #f #t (+ 0 (* i 4)) (+ 4 (* i 4))))))
-;  ;; extend the message of 16 32bit integers to 64 32bit integers
-;  (define ws
-;    (for/fold ([acc : (Vectorof Integer) message512])
-;              ([i : Positive-Index (in-range 16 64)])
-;      (define w15 (vector-ref acc (- i 15)))
-;      (define w2  (vector-ref acc (- i 2)))
-;      (define w16 (vector-ref acc (- i 16)))
-;      (define w7  (vector-ref acc (- i 7)))
-;      (define s0 (xor32 (rotr32 w15 7) (xor32 (rotr32 w15 18) (shiftr32 w15 3))))
-;      (define s1 (xor32 (rotr32 w2 17) (xor32 (rotr32 w2 19) (shiftr32 w2 10))))
-;      (vector-append
-;       acc
-;       (vector (add32 w16 (add32 s0 (add32 w7 s1))))
-;       )))
-;  ws)
-
-;;(define tmp2 (make-bytes 64 1))
-;;(expand (cast  (bytes->vector tmp2) (Vectorof Integer)))
-;;(hash8->hex (sha256-step hsh-init (sha256-padding (bytes->vector #"abc"))))
+;; split up message into chunks of 64 bytes/512 bit and process block by block
+(: sha256 (-> (Vectorof Byte) (Vectorof Integer)))
+(define (sha256 message)
+  (define padded-message (sha256-padding message))
+  (define num-chunks (/ (vector-length padded-message) 64))
+  (for/fold : (Vectorof Integer)
+      ([hsh-acc : (Vectorof Integer) hsh-init])
+      ([i       : Nonnegative-Integer (in-range 0 num-chunks)])
+    (sha256-step hsh-acc (vector-copy padded-message (* i 64) (+ 64 (* i 64))))))
 
 ;; TODO: rewrite this in one for/fold. This is too messy
 (: hash8->hex (-> (Vectorof Integer) String))
@@ -141,7 +124,15 @@
 
 (module+ test
   (check-equal?
-   (hash8->hex (sha256-step hsh-init (sha256-padding (bytes->vector #"abc"))))
-   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))
+   (hash8->hex (sha256 (bytes->vector #"abc")))
+   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+  (check-equal?
+   (hash8->hex (sha256 (bytes->vector
+                        #"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))
+   "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
+  (check-equal?
+   (hash8->hex (sha256 (bytes->vector (make-bytes 1000000 97))))
+   "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"))
+
 
 
